@@ -99,23 +99,13 @@ function isQuotaError(err: any): boolean {
   if (
     code.includes('resource-exhausted') || 
     code.includes('quota') ||
-    code.includes('unavailable') ||
-    code.includes('deadline-exceeded') ||
-    code.includes('aborted') ||
     msg.includes('quota') || 
     msg.includes('resource-exhausted') || 
     msg.includes('free daily') ||
     msg.includes('exhausted') ||
     msg.includes('stream limit') ||
     msg.includes('payload size') ||
-    msg.includes('exceeds the limit') ||
-    msg.includes('unavailable') ||
-    msg.includes('could not reach') ||
-    msg.includes('connection failed') ||
-    msg.includes('queued writes') ||
-    msg.includes('backoff delay') ||
-    msg.includes('timeout') ||
-    msg.includes('tiempo límite')
+    msg.includes('exceeds the limit')
   ) {
     handleQuotaExceeded();
     return true;
@@ -224,11 +214,12 @@ export async function saveResponsesToFirebase(
     return { count: 0, quotaExceeded: quotaExceededFlag };
   }
 
-  // 1. Immediately backup to localStorage as guaranteed safety net
+  // 1. Immediately backup to localStorage as guaranteed safety net (stripping heavy rawRow to prevent QuotaExceededError)
   try {
+    const cleanResponsesForLocal = sanitizeForFirestore(responses);
     const localKey = `firebase_backup_${surveyType}`;
     if (mode === 'overwrite') {
-      localStorage.setItem(localKey, JSON.stringify(responses));
+      localStorage.setItem(localKey, JSON.stringify(cleanResponsesForLocal));
     } else {
       const existingLocalRaw = localStorage.getItem(localKey);
       const existingLocal: ParticipantResponse[] = existingLocalRaw ? JSON.parse(existingLocalRaw) : [];
@@ -236,7 +227,7 @@ export async function saveResponsesToFirebase(
       existingLocal.forEach((r) => {
         itemMap.set(`${String(r.name || '').trim().toLowerCase()}||${String(r.startTime || '').trim().toLowerCase()}`, r);
       });
-      responses.forEach((r) => {
+      cleanResponsesForLocal.forEach((r: ParticipantResponse) => {
         itemMap.set(`${String(r.name || '').trim().toLowerCase()}||${String(r.startTime || '').trim().toLowerCase()}`, r);
       });
       localStorage.setItem(localKey, JSON.stringify(Array.from(itemMap.values())));
@@ -302,34 +293,34 @@ export async function saveResponsesToFirebase(
     }
   }
 
-  // Chunk responses: 100 responses per document reduces Firestore writes by 99%
-  const ITEMS_PER_CHUNK = 100;
+  // Chunk responses: 250 responses per document reduces Firestore writes by 99.6%
+  const ITEMS_PER_CHUNK = 250;
   const chunks: ParticipantResponse[][] = [];
   for (let i = 0; i < responsesToInsert.length; i += ITEMS_PER_CHUNK) {
     chunks.push(responsesToInsert.slice(i, i + ITEMS_PER_CHUNK));
   }
 
-  // Sequential individual document writes with per-write timeout to prevent write stream exhaustion
-  for (let i = 0; i < chunks.length; i++) {
-    if (quotaExceededFlag) break;
-    try {
-      const rawChunk = chunks[i];
-      const cleanChunk = sanitizeForFirestore(rawChunk);
-      const chunkDocRef = doc(collection(db, CHUNKS_COLLECTION));
-      await withTimeout(
-        setDoc(chunkDocRef, {
-          surveyType,
-          chunkIndex: i,
-          items: cleanChunk,
-          updatedAt: Date.now()
-        }),
-        4000,
-        'Tiempo de guardado excedido en Firebase Firestore'
-      );
-    } catch (error: any) {
-      isQuotaError(error);
-      break; // Abort remaining cloud writes immediately on error to avoid queue flooding
-    }
+  // Write chunks concurrently using Promise.all with a higher timeout to prevent timeouts
+  const writePromises = chunks.map(async (rawChunk, i) => {
+    if (quotaExceededFlag) return;
+    const cleanChunk = sanitizeForFirestore(rawChunk);
+    const chunkDocRef = doc(collection(db, CHUNKS_COLLECTION));
+    return withTimeout(
+      setDoc(chunkDocRef, {
+        surveyType,
+        chunkIndex: i,
+        items: cleanChunk,
+        updatedAt: Date.now()
+      }),
+      12000,
+      'Tiempo de guardado excedido en Firebase Firestore'
+    );
+  });
+
+  try {
+    await Promise.all(writePromises);
+  } catch (error: any) {
+    isQuotaError(error);
   }
 
   const localData = getLocalBackupResponses(surveyType);
@@ -366,16 +357,12 @@ export async function clearSurveyResponsesFromFirebase(surveyType?: string) {
       // @ts-ignore
       qChunks = query(qChunks, where('surveyType', '==', surveyType));
     }
-    const chunkSnapshot = await withTimeout(getDocs(qChunks), 3500, 'Tiempo de espera al consultar chunks para borrado');
+    const chunkSnapshot = await withTimeout(getDocs(qChunks), 5000, 'Tiempo de espera al consultar chunks para borrado');
     const docs = chunkSnapshot.docs;
-    for (let i = 0; i < docs.length; i++) {
-      if (quotaExceededFlag) break;
-      try {
-        await withTimeout(deleteDoc(docs[i].ref), 2500, 'Tiempo de borrado excedido');
-      } catch (e) {
-        if (isQuotaError(e)) break;
-      }
-    }
+    const deletePromises = docs.map((docSnap) => 
+      withTimeout(deleteDoc(docSnap.ref), 6000, 'Tiempo de borrado de chunk excedido')
+    );
+    await Promise.all(deletePromises);
   } catch (e) {
     isQuotaError(e);
   }
@@ -388,16 +375,12 @@ export async function clearSurveyResponsesFromFirebase(surveyType?: string) {
         // @ts-ignore
         qLegacy = query(qLegacy, where('surveyType', '==', surveyType));
       }
-      const legacySnapshot = await withTimeout(getDocs(qLegacy), 3500, 'Tiempo de espera al consultar legacy para borrado');
+      const legacySnapshot = await withTimeout(getDocs(qLegacy), 5000, 'Tiempo de espera al consultar legacy para borrado');
       const docs = legacySnapshot.docs;
-      for (let i = 0; i < docs.length; i++) {
-        if (quotaExceededFlag) break;
-        try {
-          await withTimeout(deleteDoc(docs[i].ref), 2500, 'Tiempo de borrado excedido');
-        } catch (e) {
-          if (isQuotaError(e)) break;
-        }
-      }
+      const deletePromises = docs.map((docSnap) => 
+        withTimeout(deleteDoc(docSnap.ref), 6000, 'Tiempo de borrado de documento legacy excedido')
+      );
+      await Promise.all(deletePromises);
     } catch (e) {
       isQuotaError(e);
     }
