@@ -150,7 +150,7 @@ export async function fetchResponsesFromFirebase(surveyType?: string): Promise<P
       // @ts-ignore
       qChunks = query(qChunks, where('surveyType', '==', surveyType));
     }
-    const chunkSnapshot = await withTimeout(getDocs(qChunks), 4000, 'Tiempo de espera agotado al consultar Firebase');
+    const chunkSnapshot = await withTimeout(getDocs(qChunks), 15000, 'Tiempo de espera agotado al consultar Firebase');
     chunkSnapshot.forEach((docSnap) => {
       const docData = docSnap.data();
       if (Array.isArray(docData.items)) {

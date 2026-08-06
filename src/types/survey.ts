@@ -65,6 +65,7 @@ export interface FilterState {
   status: 'ALL' | 'PASSED' | 'FAILED';
   satisfaction: 'ALL' | 'PROMOTOR' | 'NEUTRO' | 'DETRACTOR';
   searchTerm: string;
+  engagementBlock?: string;
 }
 
 export interface SurveySummary {

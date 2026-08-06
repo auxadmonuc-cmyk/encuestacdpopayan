@@ -18,6 +18,7 @@ import {
   List
 } from 'lucide-react';
 import { ParticipantResponse } from '../types/survey';
+import { getQuestionBlock } from '../utils/engagementBlocks';
 
 interface ParticipantTableProps {
   responses: ParticipantResponse[];
@@ -457,6 +458,7 @@ export const ParticipantTable: React.FC<ParticipantTableProps> = ({
                 <div className="space-y-3">
                   {selectedParticipant.questions.map((q, idx) => {
                     const isSatisfiedQ = isEngagement ? q.pointsObtained >= 7 : q.isCorrect;
+                    const blockName = isEngagement ? getQuestionBlock(q.questionText) : null;
 
                     return (
                       <div
@@ -466,13 +468,20 @@ export const ParticipantTable: React.FC<ParticipantTableProps> = ({
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-bold text-slate-900">
-                            {idx + 1}. {q.questionText}
-                          </span>
-                          <span className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+                          <div className="space-y-1">
+                            {blockName && (
+                              <span className="inline-block bg-slate-100 text-slate-700 text-[9px] font-black px-1.5 py-0.5 rounded-md border border-slate-200 uppercase tracking-wide">
+                                {blockName}
+                              </span>
+                            )}
+                            <div className="font-bold text-slate-900">
+                              {idx + 1}. {q.questionText}
+                            </div>
+                          </div>
+                          <span className={`font-bold px-2 py-0.5 rounded text-[11px] whitespace-nowrap ${
                             isSatisfiedQ ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
                           }`}>
-                            {q.pointsObtained} / {q.maxPoints} {isEngagement ? 'Satisfacción' : 'pts'}
+                            {q.pointsObtained} / {q.maxPoints} {isEngagement ? 'Calif.' : 'pts'}
                           </span>
                         </div>
                         <div className="text-slate-700 bg-white p-2 rounded border border-slate-200 italic font-bold">

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, Filter, RotateCcw, MapPin, Calendar } from 'lucide-react';
 import { FilterState } from '../types/survey';
+import { BLOCK_LIST } from '../utils/engagementBlocks';
 
 interface FilterBarProps {
   filters: FilterState;
@@ -14,6 +15,7 @@ interface FilterBarProps {
   years: string[];
   months: string[];
   totalFilteredCount: number;
+  activeSurveyType?: string;
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({
@@ -27,7 +29,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   trainingTypes,
   years,
   months,
-  totalFilteredCount
+  totalFilteredCount,
+  activeSurveyType
 }) => {
   const activeFiltersCount = [
     filters.regional !== 'ALL',
@@ -39,6 +42,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
     filters.month !== 'ALL',
     filters.status !== 'ALL',
     filters.satisfaction !== 'ALL',
+    filters.engagementBlock && filters.engagementBlock !== 'ALL',
     filters.searchTerm.trim() !== ''
   ].filter(Boolean).length;
 
@@ -236,6 +240,26 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             <option value="DETRACTOR" className="text-red-700 font-bold">🔴 Detractor (0 al 6)</option>
           </select>
         </div>
+
+        {/* Filtro Adicional para Engagement: Bloque / Dimensión */}
+        {activeSurveyType === 'engagement' && (
+          <div>
+            <select
+              value={filters.engagementBlock || 'ALL'}
+              onChange={(e) => onFilterChange({ ...filters, engagementBlock: e.target.value })}
+              className={`w-full px-2.5 py-2 border rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 font-bold transition-colors ${
+                filters.engagementBlock && filters.engagementBlock !== 'ALL'
+                  ? 'bg-amber-50 border-amber-400 text-amber-900'
+                  : 'bg-slate-50 border-slate-200 text-slate-800'
+              }`}
+            >
+              <option value="ALL">Dimensión: Todas</option>
+              {BLOCK_LIST.map(block => (
+                <option key={block} value={block}>{block}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
     </div>
   );

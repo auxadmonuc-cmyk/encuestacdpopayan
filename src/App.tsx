@@ -15,6 +15,8 @@ import { generateBavariaSampleData } from './utils/sampleDataGenerator';
 import { ParticipantResponse, FilterState, SurveyType } from './types/survey';
 import { Upload, FileSpreadsheet, Sparkles, CheckCircle2, AlertCircle, RefreshCw, Database } from 'lucide-react';
 import { fetchResponsesFromFirebase, saveResponsesToFirebase, clearSurveyResponsesFromFirebase, isFirestoreQuotaExceeded } from './db/firebaseService';
+import { getQuestionBlock } from './utils/engagementBlocks';
+import { EngagementBlockTable } from './components/EngagementBlockTable';
 
 
 export default function App() {
@@ -64,7 +66,8 @@ export default function App() {
     month: 'ALL',
     status: 'ALL',
     satisfaction: 'ALL',
-    searchTerm: ''
+    searchTerm: '',
+    engagementBlock: 'ALL'
   });
 
   const [dbStatus, setDbStatus] = useState<{ connected: boolean; provider?: string; count?: number } | null>(null);
@@ -113,7 +116,8 @@ export default function App() {
       month: 'ALL',
       status: 'ALL',
       satisfaction: 'ALL',
-      searchTerm: ''
+      searchTerm: '',
+      engagementBlock: 'ALL'
     });
     loadFromDatabase(false, type);
   };
@@ -289,15 +293,46 @@ export default function App() {
     return filterResponses(responses, filters);
   }, [responses, filters]);
 
+  // Summary KPIs and Question Analysis calculated on a block-specific basis for engagement survey
+  const responsesForSummaryAndAnalysis = useMemo(() => {
+    if (activeSurveyType === 'engagement' && filters.engagementBlock && filters.engagementBlock !== 'ALL') {
+      const blockName = filters.engagementBlock;
+      return filteredResponses.map(r => {
+        const blockQuestions = r.questions.filter(q => getQuestionBlock(q.questionText) === blockName);
+        if (blockQuestions.length === 0) return r;
+        
+        const totalPoints = blockQuestions.reduce((sum, q) => sum + q.pointsObtained, 0);
+        const maxPointsPossible = blockQuestions.reduce((sum, q) => sum + q.maxPoints, 0);
+        const average = blockQuestions.length > 0 ? (totalPoints / blockQuestions.length) : 0;
+        
+        // Recalculate status and passed for this block
+        const scorePercentage = maxPointsPossible > 0 ? Math.round((totalPoints / maxPointsPossible) * 100) : 0;
+        const statusType: 'PROMOTOR' | 'NEUTRO' | 'DETRACTOR' = average >= 9.0 ? 'PROMOTOR' : average >= 7.0 ? 'NEUTRO' : 'DETRACTOR';
+        const passed = average >= 7.0;
+
+        return {
+          ...r,
+          questions: blockQuestions,
+          totalPoints,
+          maxPointsPossible,
+          scorePercentage,
+          statusType,
+          passed
+        };
+      });
+    }
+    return filteredResponses;
+  }, [filteredResponses, filters.engagementBlock, activeSurveyType]);
+
   // Summary KPIs
   const summary = useMemo(() => {
-    return calculateSummary(filteredResponses, passingThreshold);
-  }, [filteredResponses, passingThreshold]);
+    return calculateSummary(responsesForSummaryAndAnalysis, passingThreshold);
+  }, [responsesForSummaryAndAnalysis, passingThreshold]);
 
   // Question Analysis
   const questionAnalysis = useMemo(() => {
-    return analyzeQuestions(filteredResponses);
-  }, [filteredResponses]);
+    return analyzeQuestions(responsesForSummaryAndAnalysis);
+  }, [responsesForSummaryAndAnalysis]);
 
   // Failed participants list
   const failedParticipants = useMemo(() => {
@@ -316,7 +351,8 @@ export default function App() {
       month: 'ALL',
       status: 'ALL',
       satisfaction: 'ALL',
-      searchTerm: ''
+      searchTerm: '',
+      engagementBlock: 'ALL'
     });
   };
 
@@ -450,10 +486,20 @@ export default function App() {
               years={years}
               months={months}
               totalFilteredCount={filteredResponses.length}
+              activeSurveyType={activeSurveyType}
             />
 
             {/* Main Survey View */}
             <div className="space-y-6 mt-4">
+              {/* Engagement Dimension Block Summary Table - ONLY for engagement survey */}
+              {activeSurveyType === 'engagement' && (
+                <EngagementBlockTable
+                  responses={filteredResponses}
+                  activeBlock={filters.engagementBlock || 'ALL'}
+                  onBlockSelect={(block) => setFilters({ ...filters, engagementBlock: block })}
+                />
+              )}
+
               {/* Section 1: GRÁFICAS DE ANÁLISIS Y CARGO CRÍTICO */}
               <OverviewCharts
                 responses={filteredResponses}
