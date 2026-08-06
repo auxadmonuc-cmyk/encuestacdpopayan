@@ -32,8 +32,24 @@ export default function App() {
   const [responses, setResponses] = useState<ParticipantResponse[]>([]);
   const [passingThreshold, setPassingThreshold] = useState<number>(70);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('Cargando información...');
+  const [loadingSubMessage, setLoadingSubMessage] = useState<string>('Por favor espera un momento.');
+  const [loadingSeconds, setLoadingSeconds] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let interval: any;
+    if (isLoading) {
+      setLoadingSeconds(0);
+      interval = setInterval(() => {
+        setLoadingSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      setLoadingSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [isLoading]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'failed' | 'questions' | 'participants'>(() => {
     try {
       const saved = localStorage.getItem('jm_active_tab');
@@ -81,6 +97,8 @@ export default function App() {
   // Function to load responses from Firebase
   const loadFromDatabase = async (showNotification = false, surveyTypeToLoad = activeSurveyType) => {
     setIsLoading(true);
+    setLoadingMessage('Consultando Base de Datos en la Nube de Bavaria...');
+    setLoadingSubMessage('Recuperando las respuestas históricas y sincronizando el panel principal.');
     setErrorMessage(null);
     try {
       const data = await fetchResponsesFromFirebase(surveyTypeToLoad);
@@ -100,6 +118,26 @@ export default function App() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForceOfflineLoad = () => {
+    setIsLoading(false);
+    try {
+      const localKey = `firebase_backup_${activeSurveyType}`;
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const localItems = JSON.parse(raw);
+        if (Array.isArray(localItems) && localItems.length > 0) {
+          setResponses(localItems);
+          setDbStatus({ connected: false, provider: 'Caché Local Offline', count: localItems.length });
+          setSuccessMessage(`Se cargaron ${localItems.length} registros desde el almacenamiento local sin esperar a la nube.`);
+          return;
+        }
+      }
+      setErrorMessage('No se encontró copia de seguridad local en este dispositivo para esta encuesta. Intente cargar datos de ejemplo o un archivo Excel.');
+    } catch (e) {
+      setErrorMessage('Error al leer el almacenamiento local offline.');
     }
   };
 
@@ -135,6 +173,8 @@ export default function App() {
     }
 
     setIsLoading(true);
+    setLoadingMessage('Sincronizando información con Firebase...');
+    setLoadingSubMessage('Guardando y respaldando respuestas de forma segura en la nube de Bavaria.');
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -160,6 +200,8 @@ export default function App() {
   // Helper to clear responses from Firebase
   const clearDatabase = async (clearAll: boolean = false) => {
     setIsLoading(true);
+    setLoadingMessage('Eliminando registros de la Base de Datos...');
+    setLoadingSubMessage('Vaciando las encuestas y refrescando el almacenamiento local.');
     setErrorMessage(null);
     setSuccessMessage(null);
     try {
@@ -189,6 +231,8 @@ export default function App() {
 
   const handleLoadSampleData = () => {
     setIsLoading(true);
+    setLoadingMessage('Generando datos simulados de Bavaria...');
+    setLoadingSubMessage('Creando respuestas aleatorias con lógica de principios para visualización inmediata.');
     setErrorMessage(null);
     setSuccessMessage(null);
     try {
@@ -204,6 +248,8 @@ export default function App() {
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
+    setLoadingMessage('Procesando archivo Excel...');
+    setLoadingSubMessage('Leyendo columnas, mapeando preguntas e identificando factores de satisfacción.');
     setErrorMessage(null);
     setSuccessMessage(null);
     try {
@@ -388,7 +434,70 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans antialiased flex flex-col">
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans antialiased flex flex-col relative">
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[9999] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xl p-8 max-w-md w-full text-center space-y-6 animate-zoom-in">
+            {/* Spinning Indicator */}
+            <div className="relative w-20 h-20 mx-auto">
+              {/* Outer ring */}
+              <div className="absolute inset-0 rounded-full border-4 border-slate-100 border-t-teal-600 animate-spin"></div>
+              {/* Inner ring */}
+              <div className="absolute inset-2 rounded-full border-4 border-slate-100 border-b-cyan-500 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1s' }}></div>
+              {/* Center icon */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Database className="w-6 h-6 text-teal-700 animate-pulse" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-slate-900 tracking-tight leading-snug">
+                {loadingMessage}
+              </h3>
+              <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                {loadingSubMessage}
+              </p>
+            </div>
+
+            {/* Loading Seconds & Dynamic Tips */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-2 text-left">
+              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <span>Estado del Proceso</span>
+                <span className="font-mono bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-600">{loadingSeconds}s</span>
+              </div>
+              
+              <div className="text-xs text-slate-600 font-medium leading-relaxed">
+                {loadingSeconds < 4 ? (
+                  "Estableciendo canal seguro con los servidores de base de datos en la nube de Bavaria..."
+                ) : loadingSeconds < 8 ? (
+                  "Verificando cuota diaria y estado del servicio de base de datos de Firebase..."
+                ) : (
+                  "La conexión en la nube está demorando un poco. Esto puede deberse a la latencia de red de tu equipo."
+                )}
+              </div>
+            </div>
+
+            {/* Offline Fallback Actions if taking too long */}
+            {loadingSeconds >= 4 && (
+              <div className="space-y-2 pt-2 animate-fade-in border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={handleForceOfflineLoad}
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-black py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
+                  OMITIR ESPERA Y USAR COPIA LOCAL
+                </button>
+                <p className="text-[10px] text-slate-400 font-medium text-center">
+                  Carga los datos previamente guardados de manera instantánea en tu navegador.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header Bar */}
       <Header
         activeSurveyType={activeSurveyType}
@@ -438,36 +547,25 @@ export default function App() {
           </div>
         )}
 
-        {/* Loading Indicator */}
-        {isLoading && (
-          <div className="bg-white rounded-xl p-8 border border-slate-200 text-center shadow-xs">
-            <RefreshCw className="w-8 h-8 text-teal-600 animate-spin mx-auto mb-3" />
-            <h3 className="text-sm font-bold text-slate-900">Procesando y Sincronizando Firebase Firestore...</h3>
-            <p className="text-xs text-slate-500 mt-1">Calculando puntajes y guardando los registros en Firebase Firestore.</p>
-          </div>
-        )}
-
         {/* Upload Excel Card */}
-        {!isLoading && (
-          <UploadCard
-            activeSurveyType={activeSurveyType}
-            onFileUpload={handleFileUpload}
-            onLoadSampleData={handleLoadSampleData}
-            onSaveToDb={() => saveToDatabase(responses)}
-            onReloadFromDb={() => loadFromDatabase(true)}
-            isLoading={isLoading}
-            totalLoaded={responses.length}
-            dbCount={dbStatus?.count ?? 0}
-            isDbConnected={dbStatus?.connected}
-            isQuotaExceeded={isFirestoreQuotaExceeded()}
-            uploadMode={uploadMode}
-            onUploadModeChange={setUploadMode}
-            onClearDb={clearDatabase}
-          />
-        )}
+        <UploadCard
+          activeSurveyType={activeSurveyType}
+          onFileUpload={handleFileUpload}
+          onLoadSampleData={handleLoadSampleData}
+          onSaveToDb={() => saveToDatabase(responses)}
+          onReloadFromDb={() => loadFromDatabase(true)}
+          isLoading={isLoading}
+          totalLoaded={responses.length}
+          dbCount={dbStatus?.count ?? 0}
+          isDbConnected={dbStatus?.connected}
+          isQuotaExceeded={isFirestoreQuotaExceeded()}
+          uploadMode={uploadMode}
+          onUploadModeChange={setUploadMode}
+          onClearDb={clearDatabase}
+        />
 
         {/* Main Dashboard Workspace */}
-        {!isLoading && responses.length > 0 && (
+        {responses.length > 0 && (
           <ErrorBoundary onResetFilters={handleResetFilters}>
             {/* KPI Metrics Strip */}
             <KpiCards
