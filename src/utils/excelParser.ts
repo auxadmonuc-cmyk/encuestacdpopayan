@@ -105,6 +105,45 @@ function calculateDuration(start: any, end: any): number {
 }
 
 /**
+ * Parse standard Spanish or numeric Likert answers to a scale of 1 to 10
+ */
+function parseLikertRating(val: any): number | null {
+  if (val === null || val === undefined) return null;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // 1. Check if it starts with or is a direct number
+  const numMatch = str.match(/^(\d+)/);
+  if (numMatch) {
+    const num = parseInt(numMatch[1], 10);
+    if (!isNaN(num) && num >= 1 && num <= 10) {
+      return num;
+    }
+  }
+
+  // 2. Try mapping common Spanish Likert text
+  const lower = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  if (lower.includes('totalmente de acuerdo') || lower.includes('muy de acuerdo') || lower.includes('completamente de acuerdo') || lower === 'si' || lower === 'siempre') {
+    return 5;
+  }
+  if (lower.includes('de acuerdo') || lower.includes('deacuerdo') || lower === 'frecuentemente' || lower === 'casi siempre') {
+    return 4;
+  }
+  if (lower.includes('ni de acuerdo') || lower.includes('neutral') || lower.includes('medio') || lower === 'algunas veces' || lower === 'a veces') {
+    return 3;
+  }
+  if (lower.includes('en desacuerdo') || lower === 'raramente' || lower === 'casi nunca') {
+    return 2;
+  }
+  if (lower.includes('totalmente en desacuerdo') || lower.includes('muy en desacuerdo') || lower === 'no' || lower === 'nunca') {
+    return 1;
+  }
+
+  return null;
+}
+
+/**
  * Helper to search row object for any value matching candidate key names or keywords
  */
 function findRowValue(
@@ -825,18 +864,46 @@ export function parseExcelData(
     });
   }
 
+  // If engagement, let's auto-detect the rating scale (5 vs 10) by checking the answers
+  let engagementScale = 5;
+  if (detectedSurveyType === 'engagement') {
+    let hasRatingGreaterThan5 = false;
+    rawRows.forEach(row => {
+      questionMap.forEach(q => {
+        const val = row[q.directHeader] || row[q.canonicalText];
+        if (val !== undefined && val !== null) {
+          const str = String(val).trim();
+          const match = str.match(/^(\d+)/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > 5 && num <= 10) {
+              hasRatingGreaterThan5 = true;
+            }
+          }
+        }
+      });
+    });
+    if (hasRatingGreaterThan5) {
+      engagementScale = 10;
+    }
+  }
+
   // Calculate Max Possible Points per Question across the dataset
   const maxPointsPerQuestion: Record<string, number> = {};
   questionMap.forEach(q => {
-    let maxFound = 0;
-    if (q.pointsHeader) {
-      rawRows.forEach(row => {
-        const pts = parseNum(row[q.pointsHeader]);
-        if (pts > maxFound) maxFound = pts;
-      });
+    if (detectedSurveyType === 'engagement') {
+      maxPointsPerQuestion[q.canonicalText] = engagementScale;
+    } else {
+      let maxFound = 0;
+      if (q.pointsHeader) {
+        rawRows.forEach(row => {
+          const pts = parseNum(row[q.pointsHeader]);
+          if (pts > maxFound) maxFound = pts;
+        });
+      }
+      const defaultPerQ = Math.round(100 / Math.max(1, questionMap.length));
+      maxPointsPerQuestion[q.canonicalText] = maxFound > 0 ? maxFound : defaultPerQ;
     }
-    const defaultPerQ = Math.round(100 / Math.max(1, questionMap.length));
-    maxPointsPerQuestion[q.canonicalText] = maxFound > 0 ? maxFound : defaultPerQ;
   });
 
   const responses: ParticipantResponse[] = rawRows.map((row, index) => {
@@ -946,7 +1013,22 @@ export function parseExcelData(
         ptsObtained = parseNum(row[q.pointsHeader]);
         hasExplicitScore = true;
         explicitScoreColumnsCount++;
+      } else if (detectedSurveyType === 'engagement') {
+        const parsedRating = parseLikertRating(rawUserAns);
+        if (parsedRating !== null) {
+          ptsObtained = parsedRating;
+          hasExplicitScore = true;
+          explicitScoreColumnsCount++;
+        } else {
+          ptsObtained = maxPts;
+          hasExplicitScore = true;
+          explicitScoreColumnsCount++;
+        }
       }
+
+      const isCorrectValue = detectedSurveyType === 'engagement'
+        ? (maxPts === 10 ? ptsObtained >= 7 : ptsObtained >= 4)
+        : (hasExplicitScore ? ptsObtained >= maxPts * 0.8 : true);
 
       questions.push({
         id: `q_${qIndex}`,
@@ -955,7 +1037,7 @@ export function parseExcelData(
         maxPoints: maxPts,
         userAnswer: rawUserAns || 'Respuesta Registrada',
         comments,
-        isCorrect: hasExplicitScore ? ptsObtained >= maxPts * 0.8 : true
+        isCorrect: isCorrectValue
       });
 
       sumScoreFromPointsHeaders += ptsObtained;
@@ -983,7 +1065,9 @@ export function parseExcelData(
       }
     }
 
-    const passed = totalPoints >= maxPointsPossible || scorePercentage >= 100;
+    const passed = detectedSurveyType === 'engagement'
+      ? scorePercentage >= 70
+      : (totalPoints >= maxPointsPossible || scorePercentage >= 100);
 
     // Satisfaction extraction from row
     let satisfactionRating = 0;
@@ -1320,7 +1404,7 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
         acc.sumPoints += ptsObtained;
 
         const isSatisfied = surveyType === 'engagement'
-          ? ptsObtained >= 7
+          ? (maxPts === 10 ? ptsObtained >= 7 : ptsObtained >= 4)
           : (participantQ.isCorrect || ptsObtained >= maxPts * 0.8);
 
         if (isSatisfied) {
