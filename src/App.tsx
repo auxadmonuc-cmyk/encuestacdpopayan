@@ -331,8 +331,13 @@ export default function App() {
 
   // Question Analysis
   const questionAnalysis = useMemo(() => {
-    return analyzeQuestions(responsesForSummaryAndAnalysis);
-  }, [responsesForSummaryAndAnalysis]);
+    const allAnalysis = analyzeQuestions(responsesForSummaryAndAnalysis);
+    if (activeSurveyType === 'engagement' && filters.engagementBlock && filters.engagementBlock !== 'ALL') {
+      const blockName = filters.engagementBlock;
+      return allAnalysis.filter(q => getQuestionBlock(q.questionText) === blockName);
+    }
+    return allAnalysis;
+  }, [responsesForSummaryAndAnalysis, filters.engagementBlock, activeSurveyType]);
 
   // Failed participants list
   const failedParticipants = useMemo(() => {
