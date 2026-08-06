@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "ParticipantResponse": {
+      "title": "ParticipantResponse",
+      "description": "A response to a survey",
+      "type": "object",
+      "properties": {
+        "surveyType": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "identification": { "type": "string" },
+        "regional": { "type": "string" },
+        "city": { "type": "string" },
+        "operator": { "type": "string" },
+        "cargo": { "type": "string" },
+        "trainingType": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "year": { "type": "string" },
+        "month": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "totalPoints": { "type": "number" },
+        "maxPointsPossible": { "type": "number" },
+        "scorePercentage": { "type": "number" },
+        "statusType": { "type": "string" },
+        "passed": { "type": "boolean" },
+        "generalComments": { "type": "string" },
+        "questions": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "responses/{responseId}": {
+      "schema": { "$ref": "ParticipantResponse" },
+      "description": "Survey responses"
+    }
+  }
+}

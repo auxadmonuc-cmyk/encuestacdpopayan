@@ -1,0 +1,6 @@
+{
+  "name": "JM Dashboard Analytics",
+  "description": "Tablero de control y diagnóstico de respuestas de encuestas en Excel con análisis de puntajes, preguntas falladas y métricas por regional u operador.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
