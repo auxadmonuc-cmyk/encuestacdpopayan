@@ -204,16 +204,25 @@ export default function App() {
     setSuccessMessage(null);
     try {
       const arrayBuffer = await file.arrayBuffer();
+      // Use activeSurveyType as the hint for mapping
       const parsed = parseExcelData(arrayBuffer, passingThreshold, activeSurveyType);
       if (parsed.responses.length === 0) {
         throw new Error('No se encontraron filas con respuestas válidas en el archivo.');
       }
       
-      // Save parsed responses using selected uploadMode (append/overwrite)
-      await saveToDatabase(parsed.responses, activeSurveyType, uploadMode);
+      // Identify the actual detected survey type from the parsed rows
+      const detectedType = parsed.responses[0]?.surveyType || activeSurveyType;
       
-      // Crucial: reload the entire combined dataset from the database so the screen updates with everything stored!
-      await loadFromDatabase(false, activeSurveyType);
+      // Save parsed responses using the detectedType
+      await saveToDatabase(parsed.responses, detectedType, uploadMode);
+      
+      // Switch active survey type state if it differs
+      if (detectedType !== activeSurveyType) {
+        setActiveSurveyType(detectedType);
+      } else {
+        // Crucial: reload the entire combined dataset from the database so the screen updates with everything stored!
+        await loadFromDatabase(false, detectedType);
+      }
       
       setActiveTab('dashboard');
     } catch (err: any) {
