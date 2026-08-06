@@ -559,8 +559,15 @@ const CORE_QUESTION_DEFINITIONS_ENGAGEMENT = [
   }
 ];
 
+const matchCoreQuestionCache = new Map<string, string | null>();
+
 function matchCoreQuestion(text: string, surveyType: SurveyType = 'principios'): string | null {
   if (!text) return null;
+
+  const cacheKey = `${surveyType}:${text}`;
+  if (matchCoreQuestionCache.has(cacheKey)) {
+    return matchCoreQuestionCache.get(cacheKey)!;
+  }
 
   const cleanedText = text
     .replace(/^(puntos|puntuación|puntuacion|puntaje)[:\s-]*/i, '')
@@ -607,8 +614,9 @@ function matchCoreQuestion(text: string, surveyType: SurveyType = 'principios'):
 
   checkDefs(definitions);
 
-  // Strictly return match for the specified surveyType only - do not cross-match other surveys
-  return bestMatch ? bestMatch.canonicalText : null;
+  const result = bestMatch ? bestMatch.canonicalText : null;
+  matchCoreQuestionCache.set(cacheKey, result);
+  return result;
 }
 
 export function parseExcelData(
@@ -1232,7 +1240,7 @@ export function calculateSummary(responses: ParticipantResponse[], passingThresh
 }
 
 /**
- * Question-by-question analysis safely
+ * Question-by-question analysis safely with extreme O(N * Q) optimization
  */
 export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnalysis[] {
   if (!Array.isArray(responses) || responses.length === 0) return [];
@@ -1263,42 +1271,63 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
     }
   });
 
-  const questionAnalysisList: QuestionAnalysis[] = [];
+  // Pre-initialize our aggregation map
+  const analysisMap: Record<string, {
+    totalAttempts: number;
+    correctCount: number;
+    failedCount: number;
+    sumPoints: number;
+    failedParticipants: QuestionAnalysis['failedParticipants'];
+  }> = {};
 
   allQuestionTexts.forEach(qText => {
-    let totalAttempts = 0;
-    let correctCount = 0;
-    let partialCount = 0;
-    let failedCount = 0;
-    let sumPoints = 0;
-    const failedParticipants: QuestionAnalysis['failedParticipants'] = [];
+    analysisMap[qText] = {
+      totalAttempts: 0,
+      correctCount: 0,
+      failedCount: 0,
+      sumPoints: 0,
+      failedParticipants: []
+    };
+  });
 
-    responses.forEach(r => {
-      if (!r) return;
+  responses.forEach(r => {
+    if (!r) return;
 
-      const participantQuestions = Array.isArray(r.questions) ? r.questions : [];
-      const participantQ = participantQuestions.find(pq => 
-        pq && (
-          pq.questionText === qText || 
-          matchCoreQuestion(pq.questionText, surveyType) === qText
-        )
-      );
+    const participantQuestions = Array.isArray(r.questions) ? r.questions : [];
+    
+    // Create an O(1) lookup table for both exact match and canonical match
+    const qLookup = new Map<string, typeof participantQuestions[number]>();
+    participantQuestions.forEach(pq => {
+      if (!pq) return;
+      qLookup.set(pq.questionText, pq);
+      const canonical = matchCoreQuestion(pq.questionText, surveyType);
+      if (canonical) {
+        qLookup.set(canonical, pq);
+      }
+    });
 
-      totalAttempts++;
+    allQuestionTexts.forEach(qText => {
+      const acc = analysisMap[qText];
+      if (!acc) return;
+
+      acc.totalAttempts++;
+      const participantQ = qLookup.get(qText);
 
       if (participantQ) {
         const ptsObtained = Number(participantQ.pointsObtained) || 0;
         const maxPts = Number(participantQ.maxPoints) || (surveyType === 'engagement' ? 10 : 20);
 
-        sumPoints += ptsObtained;
+        acc.sumPoints += ptsObtained;
 
-        const isSatisfied = surveyType === 'engagement' ? ptsObtained >= 7 : (participantQ.isCorrect || ptsObtained >= maxPts * 0.8);
+        const isSatisfied = surveyType === 'engagement'
+          ? ptsObtained >= 7
+          : (participantQ.isCorrect || ptsObtained >= maxPts * 0.8);
 
         if (isSatisfied) {
-          correctCount++;
+          acc.correctCount++;
         } else {
-          failedCount++;
-          failedParticipants.push({
+          acc.failedCount++;
+          acc.failedParticipants.push({
             participantId: r.id,
             name: r.name || 'Participante',
             regional: r.regional || 'Sin Regional',
@@ -1309,13 +1338,13 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
       } else {
         const isPassed = Boolean(r.passed) || (Number(r.scorePercentage) || 0) >= 70;
         const ptsObtained = isPassed ? (surveyType === 'engagement' ? 10 : 20) : 0;
-        sumPoints += ptsObtained;
+        acc.sumPoints += ptsObtained;
 
         if (isPassed) {
-          correctCount++;
+          acc.correctCount++;
         } else {
-          failedCount++;
-          failedParticipants.push({
+          acc.failedCount++;
+          acc.failedParticipants.push({
             participantId: r.id,
             name: r.name || 'Participante',
             regional: r.regional || 'Sin Regional',
@@ -1325,22 +1354,25 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
         }
       }
     });
+  });
 
-    const successRate = totalAttempts > 0 
-      ? Math.round((correctCount / totalAttempts) * 100) 
+  const questionAnalysisList: QuestionAnalysis[] = allQuestionTexts.map(qText => {
+    const acc = analysisMap[qText];
+    const successRate = acc.totalAttempts > 0 
+      ? Math.round((acc.correctCount / acc.totalAttempts) * 100) 
       : 0;
 
-    questionAnalysisList.push({
+    return {
       questionText: qText,
       maxPoints: surveyType === 'engagement' ? 10 : 20,
-      totalAttempts,
-      correctCount,
-      partialCount,
-      failedCount,
-      avgPointsObtained: totalAttempts > 0 ? Math.round((sumPoints / totalAttempts) * 10) / 10 : 0,
+      totalAttempts: acc.totalAttempts,
+      correctCount: acc.correctCount,
+      partialCount: 0,
+      failedCount: acc.failedCount,
+      avgPointsObtained: acc.totalAttempts > 0 ? Math.round((acc.sumPoints / acc.totalAttempts) * 10) / 10 : 0,
       successRate,
-      failedParticipants
-    });
+      failedParticipants: acc.failedParticipants
+    };
   });
 
   return questionAnalysisList;
