@@ -105,9 +105,9 @@ function calculateDuration(start: any, end: any): number {
 }
 
 /**
- * Parse standard Spanish or numeric Likert answers to a scale of 1 to 10
+ * Parse standard Spanish or numeric Likert answers to a scale of 1 to 5 or 1 to 10
  */
-function parseLikertRating(val: any): number | null {
+function parseLikertRating(val: any, scale: number = 5): number | null {
   if (val === null || val === undefined) return null;
   const str = String(val).trim();
   if (!str) return null;
@@ -124,20 +124,38 @@ function parseLikertRating(val: any): number | null {
   // 2. Try mapping common Spanish Likert text
   const lower = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-  if (lower.includes('totalmente de acuerdo') || lower.includes('muy de acuerdo') || lower.includes('completamente de acuerdo') || lower === 'si' || lower === 'siempre') {
-    return 5;
-  }
-  if (lower.includes('de acuerdo') || lower.includes('deacuerdo') || lower === 'frecuentemente' || lower === 'casi siempre') {
-    return 4;
-  }
-  if (lower.includes('ni de acuerdo') || lower.includes('neutral') || lower.includes('medio') || lower === 'algunas veces' || lower === 'a veces') {
-    return 3;
-  }
-  if (lower.includes('en desacuerdo') || lower === 'raramente' || lower === 'casi nunca') {
-    return 2;
-  }
-  if (lower.includes('totalmente en desacuerdo') || lower.includes('muy en desacuerdo') || lower === 'no' || lower === 'nunca') {
-    return 1;
+  if (scale === 10) {
+    if (lower.includes('totalmente de acuerdo') || lower.includes('muy de acuerdo') || lower.includes('completamente de acuerdo') || lower === 'si' || lower === 'siempre') {
+      return 10;
+    }
+    if (lower.includes('de acuerdo') || lower.includes('deacuerdo') || lower === 'frecuentemente' || lower === 'casi siempre') {
+      return 8;
+    }
+    if (lower.includes('ni de acuerdo') || lower.includes('neutral') || lower.includes('medio') || lower === 'algunas veces' || lower === 'a veces') {
+      return 5;
+    }
+    if (lower.includes('en desacuerdo') || lower === 'raramente' || lower === 'casi nunca') {
+      return 3;
+    }
+    if (lower.includes('totalmente en desacuerdo') || lower.includes('muy en desacuerdo') || lower === 'no' || lower === 'nunca') {
+      return 1;
+    }
+  } else {
+    if (lower.includes('totalmente de acuerdo') || lower.includes('muy de acuerdo') || lower.includes('completamente de acuerdo') || lower === 'si' || lower === 'siempre') {
+      return 5;
+    }
+    if (lower.includes('de acuerdo') || lower.includes('deacuerdo') || lower === 'frecuentemente' || lower === 'casi siempre') {
+      return 4;
+    }
+    if (lower.includes('ni de acuerdo') || lower.includes('neutral') || lower.includes('medio') || lower === 'algunas veces' || lower === 'a veces') {
+      return 3;
+    }
+    if (lower.includes('en desacuerdo') || lower === 'raramente' || lower === 'casi nunca') {
+      return 2;
+    }
+    if (lower.includes('totalmente en desacuerdo') || lower.includes('muy en desacuerdo') || lower === 'no' || lower === 'nunca') {
+      return 1;
+    }
   }
 
   return null;
@@ -736,10 +754,9 @@ export function parseExcelData(
     }
   });
 
-  // Only override targetSurveyType if another type is a much clearer/stronger match,
-  // or if targetSurveyType has absolutely 0 match in the file.
+  // Only override targetSurveyType if targetSurveyType has absolutely 0 match in the file.
   if (maxScore > 0) {
-    if (scores[targetSurveyType] === 0 || maxScore > scores[targetSurveyType] * 2) {
+    if (scores[targetSurveyType] === 0) {
       detectedSurveyType = highestScoreType;
     }
   }
@@ -864,29 +881,160 @@ export function parseExcelData(
     });
   }
 
-  // If engagement, let's auto-detect the rating scale (5 vs 10) by checking the answers
-  let engagementScale = 5;
+  // If engagement, let's auto-detect the rating scale (5 vs 10) by checking the answers, defaulting to 10
+  let engagementScale = 10;
   if (detectedSurveyType === 'engagement') {
     let hasRatingGreaterThan5 = false;
-    rawRows.forEach(row => {
-      questionMap.forEach(q => {
+    let hasAnyRating = false;
+    for (let rIndex = 0; rIndex < rawRows.length; rIndex++) {
+      const row = rawRows[rIndex];
+      for (let qIndex = 0; qIndex < questionMap.length; qIndex++) {
+        const q = questionMap[qIndex];
         const val = row[q.directHeader] || row[q.canonicalText];
         if (val !== undefined && val !== null) {
           const str = String(val).trim();
           const match = str.match(/^(\d+)/);
           if (match) {
+            hasAnyRating = true;
             const num = parseInt(match[1], 10);
             if (num > 5 && num <= 10) {
               hasRatingGreaterThan5 = true;
+              break;
             }
           }
         }
-      });
-    });
-    if (hasRatingGreaterThan5) {
+      }
+      if (hasRatingGreaterThan5) {
+        break;
+      }
+    }
+    if (hasAnyRating && !hasRatingGreaterThan5) {
+      engagementScale = 5;
+    } else {
       engagementScale = 10;
     }
   }
+
+  // Pre-resolve metadata column headers to avoid O(N * Keys * Keywords) regular expressions per row
+  const findHeaderName = (exactKeys: string[], keywords: string[]): string => {
+    for (const key of exactKeys) {
+      const found = headers.find(h => h.trim() === key);
+      if (found) return found;
+    }
+    for (const key of exactKeys) {
+      const keyNorm = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      const found = headers.find(h => h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim() === keyNorm);
+      if (found) return found;
+    }
+    for (const kw of keywords) {
+      const kwNorm = kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      const found = headers.find(h => {
+        const hNorm = h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        if (hNorm.startsWith('puntos') || hNorm.startsWith('comentarios') || hNorm.startsWith('puntuacion') || hNorm.startsWith('puntaje')) return false;
+        return hNorm.includes(kwNorm);
+      });
+      if (found) return found;
+    }
+    return '';
+  };
+
+  const resolvedOperatorHeader = findHeaderName(
+    ['¿A qué operador pertenece?', '¿A que operador pertenece?', 'Operador', 'OPERADOR', 'Empresa', 'Contratista', 'Compañía', 'Compañia'],
+    ['operador', 'empresa', 'contratista', 'compañia', 'compañía']
+  );
+
+  const resolvedCargoHeader = findHeaderName(
+    [
+      '¿Cuál es su cargo?',
+      '¿Cual es su cargo?',
+      'Cargo Almacen',
+      'Cargo Reparto',
+      'Cargo Administrativo',
+      'Cargo Operativo',
+      'Cargo',
+      'CARGO',
+      'Puesto',
+      'Rol',
+      'Oficio',
+      'Función'
+    ],
+    ['cargo', 'puesto', 'rol', 'oficio', 'funcion', 'función']
+  );
+
+  const resolvedTrainingTypeHeader = findHeaderName(
+    ['Tipo de entrenamiento', 'Tipo de capacitación', 'Tipo de capacitacion', 'Tipo de formación', 'Capacitación', 'Entrenamiento', 'Modalidad', 'Tipo de ingreso', 'Tipo'],
+    ['tipo', 'entrenamiento', 'capacitacion', 'formacion', 'modalidad', 'reentrenamiento', 'inicial']
+  );
+
+  const resolvedStartTimeHeader = headers.find(h => h.trim() === 'Hora de inicio' || h.trim() === 'Start time' || h.trim() === 'Fecha') || '';
+  const resolvedEndTimeHeader = headers.find(h => h.trim() === 'Hora de finalización' || h.trim() === 'Completion time') || '';
+
+  const resolvedYearHeader = headers.find(h => h.trim() === 'Año' || h.trim() === 'Anio' || h.trim() === 'Year') || '';
+  const resolvedMonthHeader = headers.find(h => h.trim() === 'Mes' || h.trim() === 'Month') || '';
+
+  const resolvedExplicitTotalPtsHeader = headers.find(h => h.trim() === 'Total de puntos' || h.trim() === 'Puntos' || h.trim() === 'Puntuación' || h.trim() === 'Puntuacion' || h.trim() === 'Puntaje Total') || '';
+
+  const resolvedGeneralCommentsHeader = headers.find(h => h.trim() === 'Comentarios del cuestionario') || '';
+
+  const resolvedRegionalHeader = findHeaderName(
+    ['¿A qué regional pertenece?', '¿A que regional pertenece?', 'Regional', 'REGIONAL', 'Zona', 'Territorio'],
+    ['regional', 'zona', 'territorio']
+  );
+
+  const branchingRegionalHeaders: { regName: string; header: string }[] = [];
+  const knownRegionals = ['Sur', 'Andes', 'Centro', 'Norte'];
+  knownRegionals.forEach(regName => {
+    const regLower = regName.toLowerCase();
+    const foundHeader = headers.find(h => {
+      const keyLower = h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      if (
+        keyLower.startsWith('puntos') || 
+        keyLower.startsWith('comentarios') || 
+        keyLower.startsWith('puntuacion') || 
+        keyLower.startsWith('puntaje')
+      ) {
+        return false;
+      }
+      return (
+        keyLower === regLower || 
+        keyLower.includes(`(${regLower})`) || 
+        keyLower.includes(`- ${regLower}`) || 
+        keyLower.includes(`${regLower} -`) || 
+        keyLower.includes(`regional ${regLower}`) ||
+        keyLower.includes(`regional: ${regLower}`)
+      );
+    });
+    if (foundHeader) {
+      branchingRegionalHeaders.push({ regName, header: foundHeader });
+    }
+  });
+
+  const resolvedCityHeader = findHeaderName(
+    [
+      '¿A qué Sede pertenece?',
+      '¿A que Sede pertenece?',
+      '¿A qué sede pertenece?',
+      '¿A que sede pertenece?',
+      'Sede / Centro de Distribución',
+      'Sede/Centro de Distribución',
+      'Sede / Centro de Distribucion',
+      'Sede/Centro de Distribucion',
+      'Ciudad / Sede',
+      'Ciudad',
+      'CIUDAD',
+      'Sede',
+      'SEDE',
+      'DC',
+      'CEDI',
+      'Municipio',
+      'Ubicación',
+      'Agencia',
+      'Sucursal',
+      'Lugar',
+      'City'
+    ],
+    ['centro de distribuc', 'distribucion', 'distribución', 'ciudad', 'sede', 'dc ', 'cedi', 'agencia', 'municipio', 'ubicacion', 'ubicación', 'sucursal']
+  );
 
   // Calculate Max Possible Points per Question across the dataset
   const maxPointsPerQuestion: Record<string, number> = {};
@@ -925,46 +1073,80 @@ export function parseExcelData(
     const email = isEng ? 'Anónimo' : cleanStr(row['Correo electrónico'] || row['Correo'] || row['Email'] || '');
     const identification = isEng ? 'Anónimo' : cleanStr(row['Identificación'] || row['Cédula'] || row['Documento'] || row['ID'] || '');
 
-    // Regional and City resolution (handles branching columns)
-    const { regional, city } = extractRegionalAndCity(row);
+    // Regional and City resolution in O(1)
+    let regional = '';
+    let city = '';
 
-    // Operator resolution
-    let operator = findRowValue(
-      row,
-      ['¿A qué operador pertenece?', '¿A que operador pertenece?', 'Operador', 'OPERADOR', 'Empresa', 'Contratista', 'Compañía', 'Compañia'],
-      ['operador', 'empresa', 'contratista', 'compañia', 'compañía']
-    );
-    if (!operator) operator = 'Bavaria Directo';
+    if (resolvedRegionalHeader && row[resolvedRegionalHeader]) {
+      const rawRegionalVal = String(row[resolvedRegionalHeader]).trim();
+      for (const r of knownRegionals) {
+        if (rawRegionalVal.toLowerCase().includes(r.toLowerCase())) {
+          regional = r;
+          break;
+        }
+      }
+      if (!regional) regional = rawRegionalVal;
+    }
 
-    // Cargo resolution
-    const cargo = extractCargo(row);
+    // Branching columns
+    for (const b of branchingRegionalHeaders) {
+      const val = cleanStr(row[b.header]);
+      if (val) {
+        if (!regional) {
+          regional = b.regName;
+        }
+        if (val.toLowerCase() !== b.regName.toLowerCase() && !val.toLowerCase().startsWith('regional')) {
+          city = val;
+        }
+      }
+    }
 
-    // Training type (Inicial vs Reentrenamiento)
-    let trainingType = findRowValue(
-      row,
-      ['Tipo de entrenamiento', 'Tipo de capacitación', 'Tipo de capacitacion', 'Tipo de formación', 'Capacitación', 'Entrenamiento', 'Modalidad', 'Tipo de ingreso', 'Tipo'],
-      ['tipo', 'entrenamiento', 'capacitacion', 'formacion', 'modalidad', 'reentrenamiento', 'inicial']
-    );
+    if (!city && resolvedCityHeader && row[resolvedCityHeader]) {
+      city = cleanStr(row[resolvedCityHeader]);
+    }
 
-    if (!trainingType) {
-      const allVals = Object.values(row).map(v => cleanStr(v).toLowerCase());
-      if (allVals.some(v => v.includes('reentrenam') || v.includes('re-entrenam'))) {
+    if (!regional) regional = 'Sur';
+    if (!city) city = 'Sin Especificar';
+
+    // Operator resolution in O(1)
+    let operator = 'Bavaria Directo';
+    if (resolvedOperatorHeader && row[resolvedOperatorHeader]) {
+      operator = cleanStr(row[resolvedOperatorHeader]);
+    }
+
+    // Cargo resolution in O(1)
+    let cargo = 'Operativo';
+    if (resolvedCargoHeader && row[resolvedCargoHeader]) {
+      cargo = cleanStr(row[resolvedCargoHeader]);
+    } else {
+      const fallbackCargoHeader = headers.find(k => {
+        const kLower = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return kLower.includes('cargo') || kLower.includes('puesto') || kLower.includes('rol');
+      });
+      if (fallbackCargoHeader && row[fallbackCargoHeader]) {
+        cargo = cleanStr(row[fallbackCargoHeader]);
+      }
+    }
+
+    // Training type (Inicial vs Reentrenamiento) in O(1)
+    let trainingType = 'Inicial';
+    if (resolvedTrainingTypeHeader && row[resolvedTrainingTypeHeader]) {
+      const ttValue = cleanStr(row[resolvedTrainingTypeHeader]);
+      if (ttValue.toLowerCase().includes('reentrenam') || ttValue.toLowerCase().includes('re-entrenam')) {
         trainingType = 'Reentrenamiento';
       } else {
         trainingType = 'Inicial';
       }
     } else {
-      const ttLower = trainingType.toLowerCase();
-      if (ttLower.includes('reentrenam') || ttLower.includes('re-entrenam')) {
+      const allVals = Object.values(row).map(v => cleanStr(v).toLowerCase());
+      if (allVals.some(v => v.includes('reentrenam') || v.includes('re-entrenam'))) {
         trainingType = 'Reentrenamiento';
-      } else {
-        trainingType = 'Inicial';
       }
     }
 
     // Timestamps
-    const rawStartTime = row['Hora de inicio'] || row['Start time'] || row['Fecha'] || '';
-    const rawEndTime = row['Hora de finalización'] || row['Completion time'] || '';
+    const rawStartTime = resolvedStartTimeHeader ? row[resolvedStartTimeHeader] || '' : '';
+    const rawEndTime = resolvedEndTimeHeader ? row[resolvedEndTimeHeader] || '' : '';
 
     const parsedStart = parseExcelDate(rawStartTime);
     const parsedEnd = parseExcelDate(rawEndTime);
@@ -981,8 +1163,8 @@ export function parseExcelData(
 
     // Year & Month resolution
     const SPANISH_MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    let year = cleanStr(row['Año'] || row['Anio'] || row['Year'] || '');
-    let month = cleanStr(row['Mes'] || row['Month'] || '');
+    let year = resolvedYearHeader ? cleanStr(row[resolvedYearHeader]) : '';
+    let month = resolvedMonthHeader ? cleanStr(row[resolvedMonthHeader]) : '';
 
     if (!year || !month) {
       const dateObj = parsedStart || parsedEnd || new Date();
@@ -991,7 +1173,7 @@ export function parseExcelData(
     }
 
     // Explicit total score from column if present
-    const explicitTotalPts = parseNum(row['Total de puntos'] || row['Puntos'] || row['Puntuación'] || row['Puntuacion'] || row['Puntaje Total']);
+    const explicitTotalPts = resolvedExplicitTotalPtsHeader ? parseNum(row[resolvedExplicitTotalPtsHeader]) : 0;
 
     // Question details extraction
     const questions: QuestionDetail[] = [];
@@ -1014,7 +1196,7 @@ export function parseExcelData(
         hasExplicitScore = true;
         explicitScoreColumnsCount++;
       } else if (detectedSurveyType === 'engagement') {
-        const parsedRating = parseLikertRating(rawUserAns);
+        const parsedRating = parseLikertRating(rawUserAns, engagementScale);
         if (parsedRating !== null) {
           ptsObtained = parsedRating;
           hasExplicitScore = true;
@@ -1341,20 +1523,6 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
 
   const allQuestionTexts = [...coreList];
 
-  // Only append extra questions if they actually belong to coreList (or mapped to it)
-  responses.forEach(r => {
-    if (r && Array.isArray(r.questions)) {
-      r.questions.forEach(q => {
-        if (q && q.questionText && q.questionText !== 'QR Safety 360') {
-          const canonical = matchCoreQuestion(q.questionText, surveyType);
-          if (canonical && !allQuestionTexts.includes(canonical) && coreList.includes(canonical)) {
-            allQuestionTexts.push(canonical);
-          }
-        }
-      });
-    }
-  });
-
   // Pre-initialize our aggregation map
   const analysisMap: Record<string, {
     totalAttempts: number;
@@ -1374,6 +1542,18 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
     };
   });
 
+  // Pre-resolve text canonical map to avoid O(N * Q) matchCoreQuestion calls (with its regexes & distance loops)
+  const textToCanonicalMap = new Map<string, string | null>();
+  responses.forEach(r => {
+    if (r && Array.isArray(r.questions)) {
+      r.questions.forEach(q => {
+        if (q && q.questionText && !textToCanonicalMap.has(q.questionText)) {
+          textToCanonicalMap.set(q.questionText, matchCoreQuestion(q.questionText, surveyType));
+        }
+      });
+    }
+  });
+
   responses.forEach(r => {
     if (!r) return;
 
@@ -1384,7 +1564,7 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
     participantQuestions.forEach(pq => {
       if (!pq) return;
       qLookup.set(pq.questionText, pq);
-      const canonical = matchCoreQuestion(pq.questionText, surveyType);
+      const canonical = textToCanonicalMap.get(pq.questionText);
       if (canonical) {
         qLookup.set(canonical, pq);
       }
