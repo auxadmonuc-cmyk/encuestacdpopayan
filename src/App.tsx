@@ -29,7 +29,22 @@ export default function App() {
     } catch {}
     return 'principios';
   });
-  const [responses, setResponses] = useState<ParticipantResponse[]>([]);
+  const [responses, setResponses] = useState<ParticipantResponse[]>(() => {
+    try {
+      let savedSurvey: SurveyType = 'principios';
+      const savedSurveyRaw = localStorage.getItem('jm_active_survey_type');
+      if (savedSurveyRaw === 'principios' || savedSurveyRaw === 'ambiente_seguro' || savedSurveyRaw === 'job_description' || savedSurveyRaw === 'engagement') {
+        savedSurvey = savedSurveyRaw as SurveyType;
+      }
+      const localKey = `firebase_backup_${savedSurvey}`;
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [passingThreshold, setPassingThreshold] = useState<number>(70);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('Cargando información...');
@@ -95,15 +110,28 @@ export default function App() {
   };
 
   // Function to load responses from Firebase
-  const loadFromDatabase = async (showNotification = false, surveyTypeToLoad = activeSurveyType) => {
-    setIsLoading(true);
+  const loadFromDatabase = async (showNotification = false, surveyTypeToLoad = activeSurveyType, showBlockingLoader = true) => {
+    if (showBlockingLoader) {
+      setIsLoading(true);
+    }
     setLoadingMessage('Consultando Base de Datos en la Nube de Bavaria...');
     setLoadingSubMessage('Recuperando las respuestas históricas y sincronizando el panel principal.');
-    setErrorMessage(null);
+    if (showBlockingLoader) {
+      setErrorMessage(null);
+    }
     try {
       const data = await fetchResponsesFromFirebase(surveyTypeToLoad);
       setResponses(data);
       fetchDbStatus(data.length);
+
+      // Cache retrieve data to localStorage so next visit loads instantly
+      try {
+        const localKey = `firebase_backup_${surveyTypeToLoad}`;
+        localStorage.setItem(localKey, JSON.stringify(data));
+      } catch (cacheErr) {
+        console.warn('Could not cache responses to localStorage:', cacheErr);
+      }
+
       if (showNotification) {
         if (data.length > 0) {
           setSuccessMessage(`Se cargaron ${data.length} respuestas almacenadas en Firebase.`);
@@ -113,11 +141,46 @@ export default function App() {
       }
     } catch (err: any) {
       console.error('Error auto-loading from Firebase:', err);
-      if (showNotification) {
-        setErrorMessage(`Error al conectar con Firebase: ${err.message}`);
+      
+      // Let's load the local cache as backup immediately, so we don't display 0 records or a blank screen!
+      let hasLocalBackup = false;
+      let loadedCount = 0;
+      try {
+        const localKey = `firebase_backup_${surveyTypeToLoad}`;
+        const raw = localStorage.getItem(localKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setResponses(parsed);
+            setDbStatus({ connected: false, provider: 'Caché Local Offline (Error de Red)', count: parsed.length });
+            loadedCount = parsed.length;
+            hasLocalBackup = true;
+          }
+        }
+      } catch (cacheErr) {
+        console.warn('Error reading local backup in error handler:', cacheErr);
+      }
+
+      // Show an informative message about the connection problem
+      const isVpnMessage = ' Es posible que la red de tu computador o una VPN corporativa (como la de Bavaria) estén bloqueando las conexiones salientes a la base de datos Firestore de Google.';
+      
+      if (hasLocalBackup) {
+        setErrorMessage(
+          `Atención: No se pudo sincronizar en tiempo real con Firebase en la nube (${err.message || err}).` + 
+          isVpnMessage + 
+          ` Se están visualizando los datos guardados localmente (${loadedCount} registros de la última sesión).`
+        );
+      } else {
+        setErrorMessage(
+          `Error de conexión con la Base de Datos en la Nube: ${err.message || err}.` + 
+          isVpnMessage + 
+          ` Si es la primera vez que ingresas desde este computador, por favor desconecta temporalmente la VPN corporativa o carga un archivo Excel para iniciar.`
+        );
       }
     } finally {
-      setIsLoading(false);
+      if (showBlockingLoader) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -157,12 +220,40 @@ export default function App() {
       searchTerm: '',
       engagementBlock: 'ALL'
     });
-    loadFromDatabase(false, type);
+
+    // Optimistically load from localStorage first
+    try {
+      const localKey = `firebase_backup_${type}`;
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setResponses(parsed);
+          setDbStatus({ connected: true, provider: 'Caché Local (Sincronizando...)', count: parsed.length });
+          return;
+        }
+      }
+    } catch {}
+
+    // If no local cache, clear state so user doesn't see old survey results
+    setResponses([]);
   };
 
   // Load stored data from Firebase Firestore on app mount or survey change
   useEffect(() => {
-    loadFromDatabase(false, activeSurveyType);
+    let hasLocal = false;
+    try {
+      const localKey = `firebase_backup_${activeSurveyType}`;
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          hasLocal = true;
+        }
+      }
+    } catch {}
+
+    loadFromDatabase(false, activeSurveyType, !hasLocal);
   }, [activeSurveyType]);
 
   // Helper to save responses to Firebase Firestore

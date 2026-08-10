@@ -179,6 +179,7 @@ export async function fetchResponsesFromFirebase(surveyType?: string): Promise<P
     }
   } catch (error) {
     isQuotaError(error);
+    throw error;
   }
 
   // 3. Merge with local storage backup if present
