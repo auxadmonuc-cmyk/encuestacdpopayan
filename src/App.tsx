@@ -387,8 +387,8 @@ export default function App() {
 
   // Failed participants list
   const failedParticipants = useMemo(() => {
-    return filteredResponses.filter(r => !r.passed);
-  }, [filteredResponses]);
+    return responsesForSummaryAndAnalysis.filter(r => !r.passed);
+  }, [responsesForSummaryAndAnalysis]);
 
   // Reset filters
   const handleResetFilters = () => {
@@ -409,9 +409,9 @@ export default function App() {
 
   // Export filtered dataset to XLSX
   const handleExportFiltered = () => {
-    if (filteredResponses.length === 0) return;
+    if (responsesForSummaryAndAnalysis.length === 0) return;
 
-    const exportRows = filteredResponses.map(r => ({
+    const exportRows = responsesForSummaryAndAnalysis.map(r => ({
       ID: r.id,
       Nombre: r.name,
       'Cédula / Identificación': r.identification,
@@ -605,7 +605,7 @@ export default function App() {
 
               {/* Section 1: GRÁFICAS DE ANÁLISIS Y CARGO CRÍTICO */}
               <OverviewCharts
-                responses={filteredResponses}
+                responses={responsesForSummaryAndAnalysis}
                 questionAnalysis={questionAnalysis}
                 surveyType={activeSurveyType}
               />
@@ -613,13 +613,13 @@ export default function App() {
               {/* Section 2: RESULTADOS POR PRINCIPIO */}
               <QuestionBreakdown
                 questionAnalysisList={questionAnalysis}
-                totalEvaluated={filteredResponses.length}
+                totalEvaluated={responsesForSummaryAndAnalysis.length}
                 surveyType={activeSurveyType}
               />
 
               {/* Section 3: PERSONAS EVALUADAS */}
               <ParticipantTable
-                responses={filteredResponses}
+                responses={responsesForSummaryAndAnalysis}
                 onExport={handleExportFiltered}
                 passingThresholdPercent={passingThreshold}
                 searchTerm={filters.searchTerm}
