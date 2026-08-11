@@ -36,18 +36,24 @@ export const QuestionBreakdown: React.FC<QuestionBreakdownProps> = ({ questionAn
               <th className="py-3.5 px-5 font-extrabold w-2/5">{isEngagement ? 'FACTOR / PREGUNTA' : 'PRINCIPIO / PREGUNTA'}</th>
               <th className="py-3.5 px-3 text-center font-extrabold text-menta">{isEngagement ? 'SATISFECHOS (≥7)' : 'CORRECTAS'}</th>
               <th className="py-3.5 px-3 text-center font-extrabold text-mostaza">{isEngagement ? 'BAJA SATISF. (<7)' : 'INCORRECTAS'}</th>
-              <th className="py-3.5 px-5 font-extrabold">{isEngagement ? '% SATISFACCIÓN' : '% ACIERTO'}</th>
+              <th className="py-3.5 px-5 font-extrabold">{isEngagement ? 'NPS' : '% ACIERTO'}</th>
               <th className="py-3.5 px-4 text-center font-extrabold">ESTADO</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gris-claro font-medium">
             {questionAnalysisList.map((q, idx) => {
               const isExpanded = expandedIndex === idx;
-              const isCritical = q.successRate < 60;
-              const isWarning = q.successRate >= 60 && q.successRate < 85;
+              const npsVal = q.nps ?? 0;
+              const isCritical = isEngagement ? (npsVal < 0) : (q.successRate < 60);
+              const isWarning = isEngagement ? (npsVal >= 0 && npsVal < 50) : (q.successRate >= 60 && q.successRate < 85);
 
               // Format success rate with comma decimal if needed (e.g., 56,5%)
               const successRateFormatted = q.successRate.toFixed(1).replace('.', ',');
+
+              // For progress bar width
+              const progressWidth = isEngagement 
+                ? Math.max(0, Math.min(100, Math.round(((npsVal + 100) / 200) * 100)))
+                : q.successRate;
 
               return (
                 <React.Fragment key={idx}>
@@ -78,11 +84,11 @@ export const QuestionBreakdown: React.FC<QuestionBreakdownProps> = ({ questionAn
                             className={`h-3 rounded-full transition-all ${
                               isCritical ? 'bg-mostaza' : isWarning ? 'bg-amarillo-claro' : 'bg-turquesa'
                             }`}
-                            style={{ width: `${q.successRate}%` }}
+                            style={{ width: `${progressWidth}%` }}
                           />
                         </div>
                         <span className="font-extrabold text-negro-suave text-xs w-12 text-right">
-                          {successRateFormatted}%
+                          {isEngagement ? (npsVal > 0 ? `+${npsVal}` : npsVal) : `${successRateFormatted}%`}
                         </span>
                       </div>
                     </td>

@@ -1,7 +1,8 @@
 import React from 'react';
-import { Search, Filter, RotateCcw, MapPin, Calendar } from 'lucide-react';
+import { Search, Filter, RotateCcw } from 'lucide-react';
 import { FilterState } from '../types/survey';
 import { BLOCK_LIST } from '../utils/engagementBlocks';
+import { MultiSelect } from './MultiSelect';
 
 interface FilterBarProps {
   filters: FilterState;
@@ -32,19 +33,37 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   totalFilteredCount,
   activeSurveyType
 }) => {
+  const isFilterActive = (val: any) => {
+    if (!val) return false;
+    if (Array.isArray(val)) {
+      return val.length > 0 && !val.includes('ALL');
+    }
+    return val !== 'ALL';
+  };
+
   const activeFiltersCount = [
-    filters.regional !== 'ALL',
-    filters.city !== 'ALL',
-    filters.operator !== 'ALL',
-    filters.cargo !== 'ALL',
-    filters.trainingType !== 'ALL',
-    filters.year !== 'ALL',
-    filters.month !== 'ALL',
+    isFilterActive(filters.regional),
+    isFilterActive(filters.city),
+    isFilterActive(filters.operator),
+    isFilterActive(filters.cargo),
+    isFilterActive(filters.trainingType),
+    isFilterActive(filters.year),
+    isFilterActive(filters.month),
     filters.status !== 'ALL',
     filters.satisfaction !== 'ALL',
     filters.engagementBlock && filters.engagementBlock !== 'ALL',
     filters.searchTerm.trim() !== ''
   ].filter(Boolean).length;
+
+  const unifiedTrainingTypes = React.useMemo(() => {
+    const list = ['Inicial', 'Reentrenamiento'];
+    trainingTypes.forEach(t => {
+      if (t !== 'Inicial' && t !== 'Reentrenamiento' && t) {
+        list.push(t);
+      }
+    });
+    return list;
+  }, [trainingTypes]);
 
   return (
     <div className="bg-white rounded-xl p-4 shadow-xs border border-slate-200 space-y-3">
@@ -90,120 +109,82 @@ export const FilterBar: React.FC<FilterBarProps> = ({
 
         {/* Regional */}
         <div>
-          <select
-            value={filters.regional}
-            onChange={(e) => onFilterChange({ ...filters, regional: e.target.value })}
-            className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 text-slate-800 font-medium"
-          >
-            <option value="ALL">Todas las Regionales</option>
-            {regionals.map(r => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={regionals}
+            selectedValues={filters.regional}
+            onChange={(vals) => onFilterChange({ ...filters, regional: vals })}
+            placeholder="Todas las Regionales"
+            allLabel="Todas las Regionales"
+          />
         </div>
 
         {/* Ciudad (City) */}
         <div>
-          <select
-            value={filters.city}
-            onChange={(e) => onFilterChange({ ...filters, city: e.target.value })}
-            className={`w-full px-2.5 py-2 border rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 font-medium transition-colors ${
-              filters.city !== 'ALL'
-                ? 'bg-emerald-50 border-emerald-400 text-emerald-900 font-bold'
-                : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
-          >
-            <option value="ALL">Todas las Ciudades</option>
-            {cities.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={cities}
+            selectedValues={filters.city}
+            onChange={(vals) => onFilterChange({ ...filters, city: vals })}
+            placeholder="Todas las Ciudades"
+            allLabel="Todas las Ciudades"
+          />
         </div>
 
         {/* Operador */}
         <div>
-          <select
-            value={filters.operator}
-            onChange={(e) => onFilterChange({ ...filters, operator: e.target.value })}
-            className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 text-slate-800 font-medium"
-          >
-            <option value="ALL">Todos los Operadores</option>
-            {operators.map(o => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={operators}
+            selectedValues={filters.operator}
+            onChange={(vals) => onFilterChange({ ...filters, operator: vals })}
+            placeholder="Todos los Operadores"
+            allLabel="Todos los Operadores"
+          />
         </div>
 
         {/* Tipo Capacitación (Inicial vs Reentrenamiento) */}
         <div>
-          <select
-            value={filters.trainingType}
-            onChange={(e) => onFilterChange({ ...filters, trainingType: e.target.value })}
-            className={`w-full px-2.5 py-2 border rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 font-medium transition-colors ${
-              filters.trainingType !== 'ALL'
-                ? 'bg-blue-50 border-blue-400 text-blue-900 font-bold'
-                : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
-          >
-            <option value="ALL">Tipo: Inicial y Reentrenamiento</option>
-            <option value="Inicial">Inicial</option>
-            <option value="Reentrenamiento">Reentrenamiento</option>
-            {trainingTypes
-              .filter(t => t !== 'Inicial' && t !== 'Reentrenamiento')
-              .map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-          </select>
+          <MultiSelect
+            options={unifiedTrainingTypes}
+            selectedValues={filters.trainingType}
+            onChange={(vals) => onFilterChange({ ...filters, trainingType: vals })}
+            placeholder="Tipos: Inicial/Reentrenam..."
+            allLabel="Todos los Tipos"
+            activeBgClass="bg-blue-50 border-blue-400 text-blue-900"
+            activeBorderClass="border-blue-400"
+            activeTextClass="text-blue-900"
+          />
         </div>
 
         {/* Cargo */}
         <div>
-          <select
-            value={filters.cargo}
-            onChange={(e) => onFilterChange({ ...filters, cargo: e.target.value })}
-            className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 text-slate-800 font-medium"
-          >
-            <option value="ALL">Todos los Cargos</option>
-            {cargos.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={cargos}
+            selectedValues={filters.cargo}
+            onChange={(vals) => onFilterChange({ ...filters, cargo: vals })}
+            placeholder="Todos los Cargos"
+            allLabel="Todos los Cargos"
+          />
         </div>
 
         {/* Año (Year) */}
         <div>
-          <select
-            value={filters.year}
-            onChange={(e) => onFilterChange({ ...filters, year: e.target.value })}
-            className={`w-full px-2.5 py-2 border rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 font-medium transition-colors ${
-              filters.year !== 'ALL'
-                ? 'bg-emerald-50 border-emerald-400 text-emerald-900 font-bold'
-                : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
-          >
-            <option value="ALL">Todos los Años</option>
-            {years.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={years}
+            selectedValues={filters.year}
+            onChange={(vals) => onFilterChange({ ...filters, year: vals })}
+            placeholder="Todos los Años"
+            allLabel="Todos los Años"
+          />
         </div>
 
         {/* Mes (Month) */}
         <div>
-          <select
-            value={filters.month}
-            onChange={(e) => onFilterChange({ ...filters, month: e.target.value })}
-            className={`w-full px-2.5 py-2 border rounded-lg text-xs focus:bg-white focus:outline-none focus:border-emerald-500 font-medium transition-colors ${
-              filters.month !== 'ALL'
-                ? 'bg-emerald-50 border-emerald-400 text-emerald-900 font-bold'
-                : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
-          >
-            <option value="ALL">Todos los Meses</option>
-            {months.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={months}
+            selectedValues={filters.month}
+            onChange={(vals) => onFilterChange({ ...filters, month: vals })}
+            placeholder="Todos los Meses"
+            allLabel="Todos los Meses"
+          />
         </div>
 
         {/* Filter 1: Estado de Evaluación */}

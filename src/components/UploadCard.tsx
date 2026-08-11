@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileSpreadsheet, Sparkles, FileCheck, Database, Save, RefreshCw, Trash2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, Sparkles, FileCheck, Database, Save, RefreshCw, Trash2, Wifi, WifiOff } from 'lucide-react';
 import { SurveyType } from '../types/survey';
 
 interface UploadCardProps {
@@ -16,6 +16,8 @@ interface UploadCardProps {
   isQuotaExceeded?: boolean;
   uploadMode?: 'overwrite' | 'append';
   onUploadModeChange?: (mode: 'overwrite' | 'append') => void;
+  isOfflineMode?: boolean;
+  onOfflineModeChange?: (offline: boolean) => void;
 }
 
 export const UploadCard: React.FC<UploadCardProps> = ({
@@ -31,7 +33,9 @@ export const UploadCard: React.FC<UploadCardProps> = ({
   isDbConnected = true,
   isQuotaExceeded = false,
   uploadMode = 'append',
-  onUploadModeChange
+  onUploadModeChange,
+  isOfflineMode = false,
+  onOfflineModeChange
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,14 +90,47 @@ export const UploadCard: React.FC<UploadCardProps> = ({
             </div>
           )}
 
+          {/* Connection Mode Toggle (Offline vs Online) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOfflineModeChange?.(!isOfflineMode);
+            }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all active:scale-95 shadow-xs ${
+              isOfflineMode
+                ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+            }`}
+            title={isOfflineMode ? 'Trabajando Offline. Clic para activar sincronización con la nube.' : 'Trabajando Online con la Nube. Clic para activar modo Offline.'}
+          >
+            {isOfflineMode ? (
+              <>
+                <WifiOff className="w-4 h-4 text-amber-700" />
+                <span>Modo Local (Offline)</span>
+              </>
+            ) : (
+              <>
+                <Wifi className="w-4 h-4 text-emerald-700 animate-pulse" />
+                <span>Modo Sincronizado (Nube)</span>
+              </>
+            )}
+          </button>
+
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${
-            isQuotaExceeded 
-              ? 'bg-amber-800 text-amber-100 border-amber-600' 
+            isOfflineMode
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : isQuotaExceeded
+              ? 'bg-amber-800 text-amber-100 border-amber-600'
               : 'bg-petroleo text-white border-azul-corp'
           }`}>
-            <Database className={`w-3.5 h-3.5 ${isQuotaExceeded ? 'text-amber-300' : 'text-turquesa'}`} />
+            <Database className={`w-3.5 h-3.5 ${isOfflineMode ? 'text-amber-600' : isQuotaExceeded ? 'text-amber-300' : 'text-turquesa'}`} />
             <span>
-              {isQuotaExceeded ? `Almacenamiento Seguro: ${dbCount} Reg.` : `Base Firebase: ${dbCount} Registros`}
+              {isOfflineMode
+                ? `Caché Local: ${dbCount} Reg.`
+                : isQuotaExceeded
+                ? `Almacenamiento Seguro: ${dbCount} Reg.`
+                : `Base Firebase: ${dbCount} Registros`}
             </span>
           </div>
         </div>

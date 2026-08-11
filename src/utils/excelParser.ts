@@ -1340,47 +1340,47 @@ export function filterResponses(responses: ParticipantResponse[], filters: Filte
 
   const safeStr = (val: any) => (val === null || val === undefined) ? '' : String(val).toLowerCase().trim();
 
+  const matchesFilter = (itemValue: any, filterValue: any) => {
+    if (!filterValue) return true;
+    if (Array.isArray(filterValue)) {
+      if (filterValue.length === 0 || filterValue.includes('ALL')) return true;
+      return filterValue.map(v => safeStr(v)).includes(safeStr(itemValue));
+    }
+    if (filterValue === 'ALL') return true;
+    return safeStr(itemValue) === safeStr(filterValue);
+  };
+
   return responses.filter(r => {
     if (!r) return false;
 
     // Regional filter
-    if (filters.regional && filters.regional !== 'ALL') {
-      if (safeStr(r.regional) !== safeStr(filters.regional)) return false;
-    }
+    if (!matchesFilter(r.regional, filters.regional)) return false;
 
-    // City filter (accent and prefix/suffix tolerant)
-    if (filters.city && filters.city !== 'ALL') {
+    // City filter (accent and prefix/suffix tolerant, with multi-select support)
+    if (filters.city && (!Array.isArray(filters.city) ? filters.city !== 'ALL' : (filters.city.length > 0 && !filters.city.includes('ALL')))) {
       const cityNorm = safeStr(r.city).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const filterNorm = safeStr(filters.city).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      
-      const matches = cityNorm === filterNorm || cityNorm.includes(filterNorm) || filterNorm.includes(cityNorm);
+      const filterCities = Array.isArray(filters.city) ? filters.city : [filters.city];
+      const matches = filterCities.some(fc => {
+        const filterNorm = safeStr(fc).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return cityNorm === filterNorm || cityNorm.includes(filterNorm) || filterNorm.includes(cityNorm);
+      });
       if (!matches) return false;
     }
 
     // Operator filter
-    if (filters.operator && filters.operator !== 'ALL') {
-      if (safeStr(r.operator) !== safeStr(filters.operator)) return false;
-    }
+    if (!matchesFilter(r.operator, filters.operator)) return false;
 
     // Cargo filter
-    if (filters.cargo && filters.cargo !== 'ALL') {
-      if (safeStr(r.cargo) !== safeStr(filters.cargo)) return false;
-    }
+    if (!matchesFilter(r.cargo, filters.cargo)) return false;
 
     // Training Type filter
-    if (filters.trainingType && filters.trainingType !== 'ALL') {
-      if (safeStr(r.trainingType) !== safeStr(filters.trainingType)) return false;
-    }
+    if (!matchesFilter(r.trainingType, filters.trainingType)) return false;
 
     // Year filter
-    if (filters.year && filters.year !== 'ALL') {
-      if (safeStr(r.year) !== safeStr(filters.year)) return false;
-    }
+    if (!matchesFilter(r.year, filters.year)) return false;
 
     // Month filter
-    if (filters.month && filters.month !== 'ALL') {
-      if (safeStr(r.month) !== safeStr(filters.month)) return false;
-    }
+    if (!matchesFilter(r.month, filters.month)) return false;
 
     // Status Filter (PASSED, FAILED)
     if (filters.status === 'PASSED' && !r.passed) return false;
@@ -1528,6 +1528,8 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
     totalAttempts: number;
     correctCount: number;
     failedCount: number;
+    promotersCount: number;
+    detractorsCount: number;
     sumPoints: number;
     failedParticipants: QuestionAnalysis['failedParticipants'];
   }> = {};
@@ -1537,6 +1539,8 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
       totalAttempts: 0,
       correctCount: 0,
       failedCount: 0,
+      promotersCount: 0,
+      detractorsCount: 0,
       sumPoints: 0,
       failedParticipants: []
     };
@@ -1583,6 +1587,13 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
 
         acc.sumPoints += ptsObtained;
 
+        const score10 = maxPts > 0 ? (ptsObtained / maxPts) * 10 : 0;
+        if (score10 >= 9.0) {
+          acc.promotersCount++;
+        } else if (score10 <= 6.0) {
+          acc.detractorsCount++;
+        }
+
         const isSatisfied = surveyType === 'engagement'
           ? (maxPts === 10 ? ptsObtained >= 7 : ptsObtained >= 4)
           : (participantQ.isCorrect || ptsObtained >= maxPts * 0.8);
@@ -1603,6 +1614,14 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
         const isPassed = Boolean(r.passed) || (Number(r.scorePercentage) || 0) >= 70;
         const ptsObtained = isPassed ? (surveyType === 'engagement' ? 10 : 20) : 0;
         acc.sumPoints += ptsObtained;
+
+        const maxPts = surveyType === 'engagement' ? 10 : 20;
+        const score10 = maxPts > 0 ? (ptsObtained / maxPts) * 10 : 0;
+        if (score10 >= 9.0) {
+          acc.promotersCount++;
+        } else if (score10 <= 6.0) {
+          acc.detractorsCount++;
+        }
 
         if (isPassed) {
           acc.correctCount++;
@@ -1626,6 +1645,10 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
       ? Math.round((acc.correctCount / acc.totalAttempts) * 100) 
       : 0;
 
+    const nps = acc.totalAttempts > 0
+      ? Math.round(((acc.promotersCount - acc.detractorsCount) / acc.totalAttempts) * 100)
+      : 0;
+
     return {
       questionText: qText,
       maxPoints: surveyType === 'engagement' ? 10 : 20,
@@ -1635,6 +1658,7 @@ export function analyzeQuestions(responses: ParticipantResponse[]): QuestionAnal
       failedCount: acc.failedCount,
       avgPointsObtained: acc.totalAttempts > 0 ? Math.round((acc.sumPoints / acc.totalAttempts) * 10) / 10 : 0,
       successRate,
+      nps,
       failedParticipants: acc.failedParticipants
     };
   });

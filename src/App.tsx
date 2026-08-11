@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Header } from './components/Header';
 import { UploadCard } from './components/UploadCard';
@@ -14,7 +14,7 @@ import { parseExcelData, filterResponses, calculateSummary, analyzeQuestions } f
 import { generateBavariaSampleData } from './utils/sampleDataGenerator';
 import { ParticipantResponse, FilterState, SurveyType } from './types/survey';
 import { Upload, FileSpreadsheet, Sparkles, CheckCircle2, AlertCircle, RefreshCw, Database } from 'lucide-react';
-import { fetchResponsesFromFirebase, saveResponsesToFirebase, clearSurveyResponsesFromFirebase, isFirestoreQuotaExceeded } from './db/firebaseService';
+import { fetchResponsesFromFirebase, saveResponsesToFirebase, clearSurveyResponsesFromFirebase, isFirestoreQuotaExceeded, sanitizeForFirestore } from './db/firebaseService';
 import { getQuestionBlock } from './utils/engagementBlocks';
 import { EngagementBlockTable } from './components/EngagementBlockTable';
 
@@ -46,6 +46,20 @@ export default function App() {
     return [];
   });
   const [passingThreshold, setPassingThreshold] = useState<number>(70);
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('jm_work_offline') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('jm_work_offline', String(isOfflineMode));
+    } catch {}
+  }, [isOfflineMode]);
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('Cargando información...');
   const [loadingSubMessage, setLoadingSubMessage] = useState<string>('Por favor espera un momento.');
@@ -111,6 +125,31 @@ export default function App() {
 
   // Function to load responses from Firebase
   const loadFromDatabase = async (showNotification = false, surveyTypeToLoad = activeSurveyType, showBlockingLoader = true) => {
+    if (isOfflineMode) {
+      let loadedCount = 0;
+      try {
+        const localKey = `firebase_backup_${surveyTypeToLoad}`;
+        const raw = localStorage.getItem(localKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            setResponses(parsed);
+            setDbStatus({ connected: false, provider: 'Caché Local Offline', count: parsed.length });
+            loadedCount = parsed.length;
+          }
+        } else {
+          setResponses([]);
+          setDbStatus({ connected: false, provider: 'Caché Local Offline', count: 0 });
+        }
+      } catch (cacheErr) {
+        console.warn('Error reading local backup in offline mode:', cacheErr);
+      }
+      if (showNotification) {
+        setSuccessMessage(`Modo Local: Se cargaron ${loadedCount} respuestas del almacenamiento de tu navegador.`);
+      }
+      return;
+    }
+
     if (showBlockingLoader) {
       setIsLoading(true);
     }
@@ -241,6 +280,9 @@ export default function App() {
 
   // Load stored data from Firebase Firestore on app mount or survey change
   useEffect(() => {
+    // Reset filters to defaults on survey change to avoid empty data state from incompatible segment filters
+    handleResetFilters();
+
     let hasLocal = false;
     try {
       const localKey = `firebase_backup_${activeSurveyType}`;
@@ -256,6 +298,16 @@ export default function App() {
     loadFromDatabase(false, activeSurveyType, !hasLocal);
   }, [activeSurveyType]);
 
+  // Handle toggling of offline mode: trigger reload instantly
+  const isFirstMountOffline = useRef(true);
+  useEffect(() => {
+    if (isFirstMountOffline.current) {
+      isFirstMountOffline.current = false;
+      return;
+    }
+    loadFromDatabase(true, activeSurveyType, false);
+  }, [isOfflineMode]);
+
   // Helper to save responses to Firebase Firestore
   const saveToDatabase = async (dataToSave: ParticipantResponse[], surveyTypeToSave = activeSurveyType, mode = uploadMode) => {
     if (!dataToSave || dataToSave.length === 0) {
@@ -268,6 +320,41 @@ export default function App() {
     setLoadingSubMessage('Guardando y respaldando respuestas de forma segura en la nube de Bavaria.');
     setErrorMessage(null);
     setSuccessMessage(null);
+
+    if (isOfflineMode) {
+      try {
+        const cleanResponsesForLocal = sanitizeForFirestore(dataToSave);
+        const localKey = `firebase_backup_${surveyTypeToSave}`;
+        let finalCount = 0;
+        if (mode === 'overwrite') {
+          localStorage.setItem(localKey, JSON.stringify(cleanResponsesForLocal));
+          setResponses(cleanResponsesForLocal);
+          finalCount = cleanResponsesForLocal.length;
+        } else {
+          const existingLocalRaw = localStorage.getItem(localKey);
+          const existingLocal: ParticipantResponse[] = existingLocalRaw ? JSON.parse(existingLocalRaw) : [];
+          const itemMap = new Map<string, ParticipantResponse>();
+          existingLocal.forEach((r) => {
+            itemMap.set(`${String(r.name || '').trim().toLowerCase()}||${String(r.startTime || '').trim().toLowerCase()}`, r);
+          });
+          cleanResponsesForLocal.forEach((r: ParticipantResponse) => {
+            itemMap.set(`${String(r.name || '').trim().toLowerCase()}||${String(r.startTime || '').trim().toLowerCase()}`, r);
+          });
+          const merged = Array.from(itemMap.values());
+          localStorage.setItem(localKey, JSON.stringify(merged));
+          setResponses(merged);
+          finalCount = merged.length;
+        }
+        setDbStatus({ connected: false, provider: 'Caché Local Offline', count: finalCount });
+        setSuccessMessage(`¡Información guardada de forma segura localmente en tu navegador! (${finalCount} registros guardados en total).`);
+      } catch (e: any) {
+        console.error('Failed to save locally:', e);
+        setErrorMessage(`Error al guardar localmente: ${e.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
 
     try {
       const result = await saveResponsesToFirebase(dataToSave, surveyTypeToSave, mode);
@@ -653,6 +740,8 @@ export default function App() {
           uploadMode={uploadMode}
           onUploadModeChange={setUploadMode}
           onClearDb={clearDatabase}
+          isOfflineMode={isOfflineMode}
+          onOfflineModeChange={setIsOfflineMode}
         />
 
         {/* Main Dashboard Workspace */}

@@ -24,7 +24,7 @@ function withTimeout<T>(promise: Promise<T>, ms = 4500, errorMsg = 'Operación d
  * Recursively sanitizes objects for Firestore by removing undefined values
  * and stripping non-essential heavy properties like rawRow.
  */
-function sanitizeForFirestore(obj: any): any {
+export function sanitizeForFirestore(obj: any): any {
   if (obj === undefined) return null;
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) {
@@ -150,7 +150,7 @@ export async function fetchResponsesFromFirebase(surveyType?: string): Promise<P
       // @ts-ignore
       qChunks = query(qChunks, where('surveyType', '==', surveyType));
     }
-    const chunkSnapshot = await withTimeout(getDocs(qChunks), 15000, 'Tiempo de espera agotado al consultar Firebase');
+    const chunkSnapshot = await withTimeout(getDocs(qChunks), 4500, 'Tiempo de espera agotado al consultar Firebase');
     chunkSnapshot.forEach((docSnap) => {
       const docData = docSnap.data();
       if (Array.isArray(docData.items)) {

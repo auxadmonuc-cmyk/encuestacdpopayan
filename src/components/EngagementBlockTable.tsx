@@ -20,6 +20,8 @@ export const EngagementBlockTable: React.FC<EngagementBlockTableProps> = ({
     let totalPossible = 0;
     let totalAnswers = 0;
     let favorableAnswers = 0;
+    let promotersCount = 0;
+    let detractorsCount = 0;
     let questionCount = 0;
 
     // Determine questions in this block
@@ -41,18 +43,26 @@ export const EngagementBlockTable: React.FC<EngagementBlockTableProps> = ({
           if (q.pointsObtained >= 7) {
             favorableAnswers++;
           }
+          const score10 = q.maxPoints > 0 ? (q.pointsObtained / q.maxPoints) * 10 : 0;
+          if (score10 >= 9.0) {
+            promotersCount++;
+          } else if (score10 <= 6.0) {
+            detractorsCount++;
+          }
         }
       });
     });
 
     const averageScore = totalAnswers > 0 ? (totalScore / totalAnswers) : 0;
     const favorabilityPercent = totalAnswers > 0 ? Math.round((favorableAnswers / totalAnswers) * 100) : 0;
+    const nps = totalAnswers > 0 ? Math.round(((promotersCount - detractorsCount) / totalAnswers) * 100) : 0;
 
     return {
       name: blockName,
       questionCount,
       averageScore: Math.round(averageScore * 10) / 10,
       favorabilityPercent,
+      nps,
       totalAnswers
     };
   });
@@ -130,7 +140,7 @@ export const EngagementBlockTable: React.FC<EngagementBlockTableProps> = ({
               <th className="py-3 px-5 font-bold">DIMENSIÓN / BLOQUE</th>
               <th className="py-3 px-4 text-center font-bold">PREGUNTAS</th>
               <th className="py-3 px-4 text-center font-bold">PROMEDIO CALIF. (1-10)</th>
-              <th className="py-3 px-4 text-center font-bold">% FAVORABILIDAD</th>
+              <th className="py-3 px-4 text-center font-bold">NPS</th>
               <th className="py-3 px-4 text-center font-bold">NIVEL</th>
               <th className="py-3 px-5 text-right font-bold">FILTRAR</th>
             </tr>
@@ -174,22 +184,24 @@ export const EngagementBlockTable: React.FC<EngagementBlockTableProps> = ({
                     </span>
                   </td>
 
-                  {/* Favorability */}
+                  {/* NPS */}
                   <td className="py-3.5 px-4 text-center">
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center justify-center gap-2">
                       <div className="w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                         <div
                           className={`h-full rounded-full ${
-                            b.favorabilityPercent >= 80 
+                            b.nps >= 50 
                               ? 'bg-emerald-500' 
-                              : b.favorabilityPercent >= 60 
+                              : b.nps >= 0 
                               ? 'bg-amber-500' 
                               : 'bg-red-500'
                           }`}
-                          style={{ width: `${b.favorabilityPercent}%` }}
+                          style={{ width: `${Math.max(0, Math.min(100, Math.round(((b.nps + 100) / 200) * 100)))}%` }}
                         />
                       </div>
-                      <span className="font-black text-slate-900">{b.favorabilityPercent}%</span>
+                      <span className="font-black text-slate-900 w-10 text-left">
+                        {b.nps > 0 ? `+${b.nps}` : b.nps}
+                      </span>
                     </div>
                   </td>
 

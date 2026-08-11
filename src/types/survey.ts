@@ -45,6 +45,7 @@ export interface QuestionAnalysis {
   failedCount: number;
   avgPointsObtained: number;
   successRate: number; // 0 to 100
+  nps?: number; // Net Promoter Score (-100 to 100)
   failedParticipants: {
     participantId: string | number;
     name: string;
@@ -55,13 +56,13 @@ export interface QuestionAnalysis {
 }
 
 export interface FilterState {
-  regional: string;
-  city: string;
-  operator: string;
-  cargo: string;
-  trainingType: string;
-  year: string;
-  month: string;
+  regional: string | string[];
+  city: string | string[];
+  operator: string | string[];
+  cargo: string | string[];
+  trainingType: string | string[];
+  year: string | string[];
+  month: string | string[];
   status: 'ALL' | 'PASSED' | 'FAILED';
   satisfaction: 'ALL' | 'PROMOTOR' | 'NEUTRO' | 'DETRACTOR';
   searchTerm: string;
